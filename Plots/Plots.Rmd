@@ -1,0 +1,621 @@
+---
+title: "Plots"
+author: "Anonymous"
+date: "2024-09-04"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This markdown contains the code for all of the plots in each section as well as the analysis done on the results of the simulation study and the results of the change point detection of the UWTF headloss cycles.
+
+
+```{r}
+load("../Data/headloss_matrix.rda")
+load("../Data/headloss_cycles_info.rda")
+source("../Functions/hybrid.smoother.freq.R")
+source("../Functions/hybrid.smoother.bayes.R")
+source("../Functions/bubblePlot.R")
+```
+
+
+Plot in Section 3.5
+
+```{r}
+#Penalty Coefficient Grid
+lambda.grid <- 2^seq(2,-4,-1)
+omega.grid <- 2^seq(4,16,1)
+
+tolerance = 1e-4
+
+#Cycle to analyze
+cn <- 170  #cycle number
+n <- headloss_cycles_info$cycle_length[cn] + 1
+x <- 1:n
+y <- headloss_matrix[cn,x]
+n <- length(x)
+
+model.freq.elbow <- hybrid.smoother.freq(x, y, lambda.grid, omega.grid, tolerance = 1e-3,method="elbow",construct.from="left")
+
+alpha.color <- adjustcolor("black", alpha.f =.5)
+
+plot(x,y,cex=.3,pch=16,main = "Frequentist - Elbow Approach",ylab="Headloss",xlab=c("Time Index"),col=alpha.color,ylim=c(-1,8.5))
+  points(x,model.freq.elbow$basis.functions%*%model.freq.elbow$basis.coefs,type="l",col="green",lwd=2)
+  points(x, model.freq.elbow$rough.function.basis%*%model.freq.elbow$gamma.coefs,type="l",col="blue",lty=2,lwd=2)
+  points(x,y,cex=.3,col=alpha.color)
+  abline(v=model.freq.elbow$change.points,col="red",lty=3)
+  legend(0,8.5,c("Observed Values","Smooth Function","Rough Function","Change Points"),col=c(alpha.color,"green","blue","red"),pch=c(16,NA,NA,NA),lty=c(NA,1,2,3))
+  
+```
+
+Plot in Section 4.3
+
+```{r}
+#Penalty Coefficient Grid
+lambda.grid <- 2^seq(2,-4,-1)
+omega.grid <- 2^seq(4,16,1)
+
+tolerance = 1e-4
+
+#Cycle to analyze
+cn <- 170  #cycle number
+n <- headloss_cycles_info$cycle_length[cn] + 1
+x <- 1:n
+y <- headloss_matrix[cn,x]
+n <- length(x)
+
+model.bayes <- hybrid.smoother.bayes(x, y,chain.length=3000, burn.in.percent = 2/3, at.least=.15,construct.from="center")
+
+alpha.color <- adjustcolor("blue", alpha.f =.3)
+
+D <- model.bayes$rough.basis 
+plot(x,D%*%model.bayes$gammas.chain[,1], main = "Rough Function", ylab="Headloss",xlab="Time Index",col=alpha.color,type="l",ylim=c(-3,3),cex.lab=1.3)
+sample.i <- sample(2:1000,49,replace=FALSE)
+for (i in sample.i){
+  points(x,D%*%model.bayes$gammas.chain[,i],col=alpha.color,type="l")
+}
+
+plot(x,model.bayes$pred.trend.chain[,1], main = "Smooth Trend", ylab="Headloss",xlab="Time Index",col=alpha.color,type="l",ylim=c(0,8.5),cex.lab=1.3)
+for (i in sample.i){
+  points(x,model.bayes$pred.trend.chain[,i],col=alpha.color,type="l")
+}
+
+quantiles <- apply(model.bayes$gammas.chain,1,function(X) quantile(X,c(.025,.975)))
+plot(1:(n-1),model.bayes$gammas,cex=.5,pch=16,ylim=c(-.8,.65),ylab="Gamma",xlab="Time Index",col="black",main="Identifying Change Points")
+abline(h=-.15,col="red",lty=2)
+abline(h=.15,col="red",lty=2)
+abline(h=0,col="red",lty=1)
+for (i in 1:length(model.bayes$gammas)){
+  segments(i,quantiles[1,i],i,quantiles[2,i],col="blue")
+}
+points(1:(n-1),model.bayes$gammas,cex=.5,pch=16)
+
+```
+
+Plots in Section 5
+
+```{r}
+load("../Simulation_Study/pelts.200.all.rda")
+load("../Simulation_Study/ewma.200.all.rda")
+load("../Simulation_Study/cusum.200.all.rda")
+load("../Simulation_Study/hybrid.elbow.200.all.rda")
+load("../Simulation_Study/hybrid.aicc.200.all.rda")
+```
+
+```{r}
+x.n <- 100
+x <- 1:x.n
+X <- cbind(1,x)
+
+#Trends
+trend.1 <- 2*2*(10*sin(1/10*x))
+trend.2 <- 2*-3.1*(25*exp(x/10)/(exp(4)+exp(x/10))-10)
+trend.3 <- 2*1.4*(8*(x-100)/(x+25)+20)
+trend.4 <- 2*1*(1/80000*x*(x-20)*(x-60)*(x-110))
+
+
+cardinalX <- quantile(x,c(.1,.9))
+s <- 1/50
+K <- Tps.cov(x,x,cardinalX=cardinalX)
+Cov.chol <- chol(K)
+trend.5.n <- 10000
+trend.5.matrix <- matrix(NA,x.n,trend.5.n)
+set.seed(1)
+for (i in 1:trend.5.n){
+  B <- c(rnorm(1),rnorm(1,0,.1))
+  f <- 2*4*(X%*%B + s*t(Cov.chol)%*%rnorm(x.n))
+  trend.5.matrix[,i] <- f
+
+}
+
+B <- c(rnorm(1,0,1),rnorm(1,0,.1))
+trend.6 <- 2*4*(X%*%B + 1/1000*t(Cov.chol)%*%rnorm(x.n))
+B <- c(rnorm(1,0,1),rnorm(1,0,.1))
+trend.7 <- 2*4*(X%*%B + 1/500*t(Cov.chol)%*%rnorm(x.n))
+B <- c(rnorm(1,0,1),rnorm(1,0,.1))
+trend.8 <- 2*4*(X%*%B + 1/200*t(Cov.chol)%*%rnorm(x.n))
+B <- c(rnorm(1,0,1),rnorm(1,0,.1))
+trend.9 <- 2*4*(X%*%B + 1/10*t(Cov.chol)%*%rnorm(x.n))
+trend.10 <- 10*sin(1/10*x)
+
+plot(x,trend.1,type="l",col="red",xlim =c(-35,100),ylim=c(-100,80),xlab="Time Index",ylab="Measurement",xaxt = "n")
+points(x,trend.2,type="l",col="blue",lty=2)
+points(x,trend.3,type="l",col="brown",lty=3)
+points(x,trend.4,type="l",col="magenta",lty=4)
+points(x,trend.5.matrix[,105]-50,type="l",col="green",lty=5)
+points(x,trend.6,type="l",col="orange",lty=6)
+points(x,trend.7,type="l",col="cyan",lty=7)
+points(x,trend.8,type="l",col="black",lty=8)
+points(x,trend.9,type="l",col="darkgreen",lty=9)
+points(x,trend.10,type="l",col="purple",lty=10)
+legend(-37,83,legend=c("Trend 1","Trend 2","Trend 3","Trend 4","Trend 5","Trend 6","Trend 7","Trend 8","Trend 9","Trend 10"), col=c("red","blue","brown","magenta","green","orange","cyan","black","darkgreen","purple"),lty=1:10)
+axis(1, at = seq(0,100,20), labels = seq(0,100,20))
+```
+
+```{r}
+
+smooth.penalty.scores <- c(sum((diff(trend.1)[-1]-diff(trend.1)[-(x.n-1)])^2),
+sum((diff(trend.2)[-1]-diff(trend.2)[-(x.n-1)])^2),
+sum((diff(trend.3)[-1]-diff(trend.3)[-(x.n-1)])^2),
+sum((diff(trend.4)[-1]-diff(trend.4)[-(x.n-1)])^2),
+sum((diff(trend.5.matrix[,105])[-1]-diff(trend.5.matrix[,105])[-(x.n-1)])^2),
+sum((diff(trend.6)[-1]-diff(trend.6)[-(x.n-1)])^2),
+sum((diff(trend.7)[-1]-diff(trend.7)[-(x.n-1)])^2),
+sum((diff(trend.8)[-1]-diff(trend.8)[-(x.n-1)])^2),
+sum((diff(trend.9)[-1]-diff(trend.9)[-(x.n-1)])^2),
+sum((diff(trend.10)[-1]-diff(trend.10)[-(x.n-1)])^2))
+
+method.names <- c("Hybrid AICc", "Hybrid Elbow", "Two Step CUSUM", "Two Step EWMA", "Two Step PELTS")
+methods.string <- c("hybrid.aicc.results","hybrid.elbow.results","cusum.results","ewma.results","pelts.results")
+
+noise.grid <- exp(seq(-4,-1,1))
+jump.size.grid <- c(-exp(seq(2,-2,-.25)),exp(seq(-2,2,.25)))  
+n.trials <- 200 
+lambda.grid <- 2^(seq(-6,8,2))
+omega.grid <- 2^(seq(0,8,2))
+trends <- c(1:10)
+anomalies <- 0:2
+
+all.methods.data.for.plot.comp <- array(NA,c(length(method.names),length(trends),length(noise.grid),length(jump.size.grid)))
+
+
+
+for ( m in 1:length(methods.string) ){
+  data.df <- get(methods.string[m])
+  data.df <- data.df[data.df$n.anomalies==1,]
+  for (t in trends){
+    data.t <- data.df[data.df$trend==t,]
+    for (i in 1:length(noise.grid)){
+      data.n <- data.t[data.t$noise.level==noise.grid[i],]
+      for (j in 1:length(jump.size.grid)){
+        data.j <- data.n[data.n$jump.size.1==jump.size.grid[j],]
+        percent <- sum(data.j$detected.1)/(length(data.j$detected.1)-sum(is.na(data.j$detected.1)))
+        all.methods.data.for.plot.comp[m,t,i,j] <- percent
+      }
+    }
+  }
+}
+
+
+par(mfrow = c(3,3),mgp= c(2,.8,0),oma=c(1,1,1,1))
+
+scoring <- smooth.penalty.scores
+for (i in length(noise.grid):2){
+  for (j in c(24,29,34)){
+    if (j==24) {par(mar = c(1,4,2,0))}
+    if (j!=24) {par(mar = c(1,3,2,0))}
+    ylab <- ifelse(j==24,"Percent","")
+    plot(all.methods.data.for.plot.comp[1,,i,j][order(scoring)],type="l",ylim=c(-.05,1.1),xlim=c(1,10),ylab=ylab,main="",xaxt="n")
+    points(all.methods.data.for.plot.comp[1,,i,j][order(scoring)],type="p",pch=2,ylab="",xaxt="n",xlab="Trend")
+    axis(side = 1, at = 1:10, labels = (1:10)[order(scoring)])
+    
+    color <- c("black","green","blue","magenta")
+    pch <- c(2,4,5,9)
+    for(m in 2:4){
+      
+      points(all.methods.data.for.plot.comp[m,,i,j][order(scoring)]-.01*m,type="l",col=color[m],ylab="",xaxt="n")
+      points(all.methods.data.for.plot.comp[m,,i,j][order(scoring)]-.01*m,type="p",pch=pch[m],col=color[m],ylab="",xaxt="n")
+      axis(side = 1, at = 1:10, labels = (1:10)[order(scoring)])
+      
+      if(j==24 & i==4){
+        legend(2,1.1,legend=c("Hybrid AICc","Hybrid Elbow","Two Step CUSUM","Two Step EWMA"),col=color,pch=pch)
+      }
+    }
+  }
+}
+mtext(paste0("             Jump = ", round(jump.size.grid[24],2),"                          Jump = ", round(jump.size.grid[29],2),"                                Jump = ", round(jump.size.grid[34],2)), side = 3, line = -.7, outer = TRUE,font=2)
+mtext(paste0("sigma = ", round(noise.grid[2],2),"          sigma = ", round(noise.grid[3],2),"         sigma = ", round(noise.grid[4],2)), side = 2, line = -.7, outer = TRUE,font=2)
+
+
+```
+
+Figure on arxiv only.
+
+```{r warning=FALSE}
+methods.string <- c("hybrid.aicc.results","hybrid.elbow.results","cusum.results","ewma.results","pelts.results")
+### derivative
+
+derivative.grid <- seq(min(hybrid.aicc.results$derivative.1,na.rm = TRUE),max(hybrid.aicc.results$derivative.1,na.rm=TRUE),,18)
+
+all.methods.data.for.plot <- array(NA,c(length(methods.string),length(trends),length(anomalies), length(derivative.grid)-1,length(noise.grid),length(jump.size.grid)))
+
+for ( m in 1:length(methods.string) ){
+  data.df <- get(methods.string[m])
+  for (t in 1:length(trends)){
+    # trend.results <- data.df[data.df$trend==t,]
+    trend.results <- data.df[data.df$trend==t,]
+    for (a in anomalies){
+      trend.results.a <- trend.results[trend.results$n.anomalies==a,]
+       for (i in 2:length(derivative.grid)){
+        lower <- derivative.grid[i-1]
+        upper <- derivative.grid[i]
+        data.trimmed <- trend.results.a[trend.results.a$derivative.1>lower & trend.results.a$derivative.1<upper,]
+        for (j in 1:length(noise.grid)){
+          data.trimmed.2 <- data.trimmed[data.trimmed$noise.level==noise.grid[j],]
+          for (k in 1:length(jump.size.grid)){
+            data.trimmed.3 <- data.trimmed.2[data.trimmed.2$jump.size.1==jump.size.grid[k],]
+            all.methods.data.for.plot[m,t,a+1,i-1,j,k] <- sum(data.trimmed.3$detected.1,na.rm=TRUE)/dim(data.trimmed.3)[1]
+          }
+        }
+      }
+    }
+  }
+}
+
+second.derivative.grid <- seq(min(hybrid.aicc.results$second.derivative.1,na.rm = TRUE),max(hybrid.aicc.results$second.derivative.1,na.rm=TRUE),,12)
+
+all.methods.data.for.plot.2 <- array(NA,c(length(methods.string),length(trends),length(anomalies), length(second.derivative.grid)-1,length(noise.grid),length(jump.size.grid)))
+
+for ( m in 1:length(methods.string) ){
+  data.df <- get(methods.string[m])
+  for (t in 1:length(trends)){
+    trend.results <- data.df[data.df$trend==t,]
+    for (a in anomalies){
+      trend.results.a <- trend.results[trend.results$n.anomalies==a,]
+       for (i in 2:length(second.derivative.grid)){
+        lower <- second.derivative.grid[i-1]
+        upper <- second.derivative.grid[i]
+        data.trimmed <- trend.results.a[trend.results.a$second.derivative.1>lower & trend.results.a$second.derivative.1<upper,]
+        for (j in 1:length(noise.grid)){
+          data.trimmed.2 <- data.trimmed[data.trimmed$noise.level==noise.grid[j],]
+          for (k in 1:length(jump.size.grid)){
+            data.trimmed.3 <- data.trimmed.2[data.trimmed.2$jump.size.1==jump.size.grid[k],]
+            all.methods.data.for.plot.2[m,t,a+1,i-1,j,k] <- sum(data.trimmed.3$detected.1,na.rm=TRUE)/dim(data.trimmed.3)[1]
+          }
+        }
+      }
+    }
+  }
+}
+
+
+percent.success <- .80
+
+method.names <- c("Hybrid AICc", "Hybrid Elbow", "Two Step CUSUM", "Two Step EWMA", "Two Step PELTS")
+
+derivative.grid.middle <- (derivative.grid[-1]+derivative.grid[-length(derivative.grid)])/2
+second.derivative.grid.middle <- (second.derivative.grid[-1]+second.derivative.grid[-length(second.derivative.grid)])/2
+
+grey.color <- gray(seq(0, 1, length = length(jump.size.grid)/2))
+grey.color <- rgb(seq(1, 0, length = length(jump.size.grid)/2), 0, 0)
+
+zlim.pos <- c(0,8)
+zlim.neg <- c(-8,0)
+
+for (t in 9){
+  for (a in 1){
+    all.methods.data.for.plot[is.nan(all.methods.data.for.plot)] <- NA
+    jump.size.percent.detection.upper.der <- apply(all.methods.data.for.plot[1,t,a+1,,,],c(1,2),function(X) min(jump.size.grid[which(X>percent.success)][jump.size.grid[which(X>percent.success)]>0], na.rm=TRUE) )
+    jump.size.percent.detection.upper.der[!is.finite(jump.size.percent.detection.upper.der)] <- NA
+    xlim.upper.der <- derivative.grid.middle[c(min(row(jump.size.percent.detection.upper.der)[which(!is.na(jump.size.percent.detection.upper.der))]),max(row(jump.size.percent.detection.upper.der)[which(!is.na(jump.size.percent.detection.upper.der))]))]
+    
+    jump.size.percent.detection.upper.2der <- apply(all.methods.data.for.plot.2[1,t,a+1,,,],c(1,2),function(X) min(jump.size.grid[which(X>percent.success)][jump.size.grid[which(X>percent.success)]>0], na.rm=TRUE) )
+    jump.size.percent.detection.upper.2der[!is.finite(jump.size.percent.detection.upper.2der)] <- NA
+    xlim.upper.2der <- second.derivative.grid.middle[c(min(row(jump.size.percent.detection.upper.2der)[which(!is.na(jump.size.percent.detection.upper.2der))]),max(row(jump.size.percent.detection.upper.2der)[which(!is.na(jump.size.percent.detection.upper.2der))])-1)]
+    
+    # Set plot layout
+    par(mfrow = c(2,2),mgp= c(2,.7,0),oma=c(2,2,2,2))
+     
+    for (m in c(1)){
+      
+      #1st Der
+      jump.size.percent.detection.upper.der <- apply(all.methods.data.for.plot[m,t,a+1,,,],c(1,2),function(X) min(jump.size.grid[which(X>percent.success)][jump.size.grid[which(X>percent.success)]>0], na.rm=TRUE) )
+      jump.size.percent.detection.upper.der[!is.finite(jump.size.percent.detection.upper.der)] <- NA
+      xy.der <- expand.grid(derivative.grid.middle,noise.grid)
+      xy.shift.der <- expand.grid(rowMeans(cbind(derivative.grid.middle,derivative.grid[-length(derivative.grid)])),noise.grid)
+      # xy.shift.der <- expand.grid(derivative.grid[-length(derivative.grid)],noise.grid)
+      z.upper.der <- c(jump.size.percent.detection.upper.der)
+      stars.upper.der <- which(is.na(z.upper.der) | !is.finite(z.upper.der))
+      ylab <- ifelse(m==1,bquote(sigma),"")
+      
+      #2nd Der
+      jump.size.percent.detection.upper.2der <- apply(all.methods.data.for.plot.2[m,t,a+1,,,],c(1,2),function(X) min(jump.size.grid[which(X>percent.success)][jump.size.grid[which(X>percent.success)]>0], na.rm=TRUE) )
+      jump.size.percent.detection.upper.2der[!is.finite(jump.size.percent.detection.upper.2der)] <- NA
+      xy.2der <- expand.grid(second.derivative.grid.middle,noise.grid)
+      xy.shift.2der <- expand.grid(rowMeans(cbind(second.derivative.grid.middle,second.derivative.grid[-length(second.derivative.grid)])),noise.grid)
+      xy.shift.2der <- expand.grid(second.derivative.grid[-length(second.derivative.grid)],noise.grid)
+      z.upper.2der <- c(jump.size.percent.detection.upper.2der)
+      stars.upper.2der <- which(is.na(z.upper.2der) | !is.finite(z.upper.2der))
+      
+      
+      # Plot: 
+      par(mar = c(3, 3, 3, 2))
+      plot( xy.der, log="y",xlim=xlim.upper.der,ylim=c(.01,.5), type="n",ylab=bquote(sigma),xlab="1st Derivative")
+      add = TRUE
+      
+      bubble.Plot( xy.der, z.upper.der, xlab="1st Derivative", ylab=bquote(sigma), col=grey.color,zlim=zlim.pos,xlim=xlim.upper.der ,log="y",size=4,bubbleType="square",highlight = FALSE,ylim=c(.01,.5), add=add)
+      points(xy.der[stars.upper.der,],pch="*",cex=2,xlim=xlim.upper.der)
+      
+      
+      par(mar = c(3, 1.5, 3, 2))
+      bubble.Plot( xy.2der, z.upper.2der, xlab="2nd Derivative", ylab="", col=grey.color,zlim=zlim.pos,xlim=xlim.upper.2der ,log="y",size=4,bubbleType="square",highlight = FALSE,ylim=c(.01,.5), add=FALSE,legend.lab="Jump Size")
+      points(xy.2der[stars.upper.2der,],pch="*",cex=2,xlim=xlim.upper.2der)
+      
+      }
+    
+    
+    for (m in c(1)){
+      
+      #1st Der
+      jump.size.percent.detection.lower.der <- apply(all.methods.data.for.plot[m,t,a+1,,,],c(1,2),function(X) max(jump.size.grid[which(X>percent.success)][jump.size.grid[which(X>percent.success)]<0], na.rm=TRUE) )
+      jump.size.percent.detection.lower.der[!is.finite(jump.size.percent.detection.lower.der)] <- NA
+      xy.der <- expand.grid(derivative.grid.middle,noise.grid)
+      xy.shift.der <- expand.grid(rowMeans(cbind(derivative.grid.middle,derivative.grid[-length(derivative.grid)])),noise.grid)
+      # xy.shift.der <- expand.grid(derivative.grid[-length(derivative.grid)],noise.grid)
+      z.lower.der <- c(jump.size.percent.detection.lower.der)
+      stars.lower.der <- which(is.na(z.lower.der) | !is.finite(z.lower.der))
+      ylab <- ifelse(m==1,bquote(sigma),"")
+      
+      #2nd Der
+      jump.size.percent.detection.lower.2der <- apply(all.methods.data.for.plot.2[m,t,a+1,,,],c(1,2),function(X) max(jump.size.grid[which(X>percent.success)][jump.size.grid[which(X>percent.success)]<0], na.rm=TRUE) )
+      jump.size.percent.detection.lower.2der[!is.finite(jump.size.percent.detection.lower.2der)] <- NA
+      xy.2der <- expand.grid(second.derivative.grid.middle,noise.grid)
+      xy.shift.2der <- expand.grid(rowMeans(cbind(second.derivative.grid.middle,second.derivative.grid[-length(second.derivative.grid)])),noise.grid)
+      xy.shift.2der <- expand.grid(second.derivative.grid[-length(second.derivative.grid)],noise.grid)
+      z.lower.2der <- c(jump.size.percent.detection.lower.2der)
+      stars.lower.2der <- which(is.na(z.lower.2der) | !is.finite(z.lower.2der))
+      ylab <- ifelse(m==1,bquote(sigma),"")
+      
+      
+      # Plot: 
+      par(mar = c(3, 3, 3, 2))
+      plot( xy.der, log="y",xlim=xlim.upper.der,ylim=c(.01,.5), type="n",ylab=bquote(sigma),xlab="1st Derivative")
+      add = TRUE
+      
+      bubble.Plot( xy.der, z.lower.der, xlab="1st Derivative", ylab=bquote(sigma), col=rev(grey.color),zlim=zlim.neg,xlim=xlim.upper.der ,log="y",size=4,bubbleType="square",highlight = FALSE,ylim=c(.01,.5), add=add)
+      points(xy.der[stars.upper.der,],pch="*",cex=2,xlim=xlim.upper.der)
+      
+      
+      par(mar = c(3, 1.5, 3, 2))
+      bubble.Plot( xy.2der, z.lower.2der, xlab="2nd Derivative", ylab="", col=rev(grey.color),zlim=zlim.neg,xlim=xlim.upper.2der ,log="y",size=4,bubbleType="square",highlight = FALSE,ylim=c(.01,.5), add=FALSE,legend.lab="Jump Size")
+      points(xy.2der[stars.lower.2der,],pch="*",cex=2,xlim=xlim.upper.2der)
+      
+      }
+    
+    # mtext(paste0("Experimental Jump Size Needed for ",percent.success*100,"% Success Rate on Trend ",t), side = 3, line = 0, outer = TRUE)
+    mtext("Upward Jump Needed to Achieve 80% Identification - AICc on Trend 9", side = 3, line = -.7, outer = TRUE,font=2)
+    
+    mtext("Downward Jump Needed to Achieve 80% Identification - AICc on Trend 9", side = 3, line = -14, outer = TRUE,font=2)
+
+  }
+}
+```
+
+Figures in Section 6 
+
+```{r}
+load("../data/UWTF.AICc.results.Rda")
+load("../data/UWTF.Bayes.results.Rda")
+load("../data/UWTF.EWMA.results.Rda")
+load("../data/UWTF.CUSUM.results.Rda")
+
+anomalies <- c(27,38,76,135,136,170,203,205,227,346,369,383,387,434,446,502,615,657,860,927,1077,1309,1339,1374,1400,1421,1471,1536,1592,1594,1659,1670,1679,1704,1836,1841,1899,1945,2009,2018,2038,2094,2182,2225,2269,2320,2377,2409,2424,2433,2515,2540,2633,2655,2724,2760,2861,2885,2905,2963,2994,3019,3114,3190,3201)
+
+all.cycles.anomaly.table.bayes$Anomalous[!is.na(all.cycles.anomaly.table.bayes$Identified)]<-"NO"
+for (i in anomalies){
+  all.cycles.anomaly.table.bayes$Anomalous[i] <- "YES"
+}
+
+all.cycles.anomaly.table.freq$Anomalous[!is.na(all.cycles.anomaly.table.freq$Identified)]<-"NO"
+for (i in anomalies){
+  all.cycles.anomaly.table.freq$Anomalous[i] <- "YES"
+}
+  
+all.cycles.anomaly.table.freq.AIC$Anomalous[!is.na(all.cycles.anomaly.table.freq.AIC$Identified)]<-"NO"
+for (i in anomalies){
+  all.cycles.anomaly.table.freq.AIC$Anomalous[i] <- "YES"
+}
+
+all.cycles.anomaly.table.cusum$Anomalous[!is.na(all.cycles.anomaly.table.cusum$Identified)]<-"NO"
+for (i in anomalies){
+  all.cycles.anomaly.table.cusum$Anomalous[i] <- "YES"
+}
+
+all.cycles.anomaly.table.ewma$Anomalous[!is.na(all.cycles.anomaly.table.ewma$Identified)]<-"NO"
+for (i in anomalies){
+  all.cycles.anomaly.table.ewma$Anomalous[i] <- "YES"
+}
+
+```
+
+
+
+Confusion Tables 
+```{r}
+library(caret)
+```
+
+
+
+FREQ (Elbow) Confusion Table
+
+```{r}
+#Frequentist (elbow) - With q1 sds Buffer and requirement that disturbance is at least q2 units
+q1 <- 0
+q2 <- 0
+temp.table <- all.cycles.anomaly.table.freq
+temp.table$Identified[temp.table$Max.CP<q1*temp.table$RMSE | temp.table$Max.CP<q2] <- "NO" 
+predicted <- as.factor(temp.table$Identified[!is.na(temp.table$Identified)])    
+expected <- as.factor(temp.table$Anomalous[!is.na(temp.table$Identified)])
+confusionMatrix(predicted,expected)
+```
+
+
+
+Freq (AICc) Confusion Table
+
+```{r}
+#Frequentist(AICc) - With q1 sds Buffer and requirement that disturbance is at least q2 units
+q1 <- 0
+q2 <- .15
+temp.table <- all.cycles.anomaly.table.freq.AIC
+temp.table$Identified[temp.table$Max.CP<q1*temp.table$RMSE | temp.table$Max.CP<q2] <- "NO" 
+predicted <- as.factor(temp.table$Identified[!is.na(temp.table$Identified)])    
+expected <- as.factor(temp.table$Anomalous[!is.na(temp.table$Identified)])
+confusionMatrix(predicted,expected)
+```
+
+
+
+Bayes Confusion Table
+
+```{r}
+#Bayesian - With no buffer and requirement that disturbance is at least q2 units
+q1 <- 0
+q2 <- .15
+temp.table <- all.cycles.anomaly.table.bayes
+temp.table$Identified[temp.table$max.gamma<q1*temp.table$s | temp.table$max.gamma<q2] <- "NO" 
+predicted <- as.factor(temp.table$Identified[!is.na(temp.table$Identified)])    
+expected <- as.factor(temp.table$Anomalous[!is.na(temp.table$Identified)])
+confusionMatrix(predicted,expected)
+```
+
+
+Cusum Confusion Table
+
+```{r}
+#Cusum
+temp.table <- all.cycles.anomaly.table.cusum
+predicted <- as.factor(temp.table$Identified[!is.na(temp.table$Identified)])    
+expected <- as.factor(temp.table$Anomalous[!is.na(temp.table$Identified)])
+confusionMatrix(predicted,expected)
+```
+
+EWMA Confusion Table
+
+```{r}
+#EWMA
+temp.table <- all.cycles.anomaly.table.ewma
+predicted <- as.factor(temp.table$Identified[!is.na(temp.table$Identified)])    
+expected <- as.factor(temp.table$Anomalous[!is.na(temp.table$Identified)])
+confusionMatrix(predicted,expected)
+```
+
+
+
+
+
+```{r}
+missed <- c(76,346,446,502)
+
+par(mfrow = c(2,2),mar=c(3.5,3.5,3,1),oma=c(1,1,1,1), mgp=c(2.3,.7,0))
+  
+for (cn in missed){
+  cycle.length <- headloss_cycles_info$cycle_length[cn]
+  # x <- 1:(cycle.length+1)
+  x <- 1:(cycle.length-5)
+  n <- length(x)
+  y <- headloss_matrix[cn,4:(cycle.length-2)]
+  plot(x,y,ylab="Headloss",xlab="Time Indices",type="l",main=paste0("Cycle ",cn))
+}
+```
+
+The grid takes a few minutes to compute.
+```{r warning=FALSE}
+library(MASS)
+cn <- 170
+for (cn in c(170,446)){
+  cycle.length <- headloss_cycles_info$cycle_length[cn]
+  x <- 1:(cycle.length+1)
+  n <- length(x)
+  y <- headloss_matrix[cn,1:(cycle.length+1)]
+  
+  lambda.grid <- 2^(seq(-6,5,.5))
+  omega.grid <- 2^(seq(-2,18,.5))
+  
+  model.bayes <- hybrid.smoother.bayes(x,y,n.chain=1,chain.length=6000, burn.in.percent = 2/3, lambda2.mn0 = .05)
+  model.freq.aicc <- hybrid.smoother.freq(x,y,lambda.grid,omega.grid,method="AICc",construct.from = "center")
+  model.freq.elbow <- hybrid.smoother.freq(x,y,lambda.grid,omega.grid,method="elbow",construct.from = "center")
+  
+  kde <- kde2d(model.bayes$lambda.results,1/model.bayes$phi2.results)
+  contour(lambda.grid,omega.grid,model.freq.aicc$AICc.info,log="xy",drawlabels=FALSE,xlim=c(lambda.grid[1],5),ylim=c(omega.grid[2],omega.grid[length(omega.grid)-1]),levels=quantile(model.freq.aicc$AICc.info,c(.2,.1,.05,.01)),xlab=bquote(lambda),ylab=bquote(omega),main=paste0("Cycle ",cn))
+  contour(lambda.grid,omega.grid,matrix(model.freq.elbow$elbow.info$elbow.distance,nrow=length(lambda.grid)),log="xy",levels=quantile(model.freq.elbow$elbow.info$elbow.distance,c(.99,.95,.9,.8)),drawlabels=FALSE,add=TRUE,col="red")
+  contour(2*kde$x,kde$y,kde$z,add=TRUE, log="xy",col="blue",drawlabels=FALSE,levels=quantile(kde$z,c(.99,.95,.9,.8)))
+  legend(.28,20, legend = c("Hybrid AICc - AICc Score", "Hybrid Elbow - Elbow Distance", "Bayesian - Kernel Density Estimate"),
+         col = c("black", "red", "blue"), pch = 19)
+  points(model.freq.aicc$best.lambda,model.freq.aicc$best.omega,col="black",pch=19)
+  points(model.freq.elbow$best.lambda,model.freq.elbow$best.omega,col="red",pch=19)
+  points(2*(kde$x)[row(kde$z)[which.max(kde$z)]],(kde$y)[col(kde$z)[which.max(kde$z)]],col="blue",pch=19)
+}
+```
+
+
+Figures in Section 7 (arxiv only)
+
+Identification of rough function that is rough in 1st derivative.  One of missed cycles found when looking at derivatives instead of mean changes.
+```{r fig.width=6, fig.height=3}
+cn <- 1102
+cycle.length <- headloss_cycles_info$cycle_length[cn]
+x <- 1:(cycle.length+1)
+n <- length(x)
+lambda.grid <- 2^(seq(-6,8,1))
+omega.grid <- 2^(seq(0,8,1))
+y <- headloss_matrix[cn,1:(cycle.length+1)]
+model <- hybrid.smoother.freq(x,y,lambda.grid,omega.grid,method="AICc",construct.from = "slope")
+D <- matrix(0,nrow=(n),ncol=(n))
+D[lower.tri(D,diag=TRUE)] <- 1
+E <- (D%*%D)[,-1]
+D <- D[,-1]
+
+par(mfrow = c(1,3),mar=c(3.5,3.5,3,1),oma=c(1,1,1,1), mgp=c(2.3,.7,0))
+  plot(x,y,ylab="Headloss",xlab="Time Indices",type="l")
+  alpha.color <- adjustcolor("black", alpha.f = 0.5)
+  plot((1:(n-1)),model$gamma.coefs,xlab="Time Indices",ylab = bquote(kappa),ylim=c(-max(abs(model$gamma.coefs)),max(abs(model$gamma.coefs))),pch=16,cex=.6,col=alpha.color)
+  temp.der <- D%*%model$gamma.coefs
+  plot((1:n),temp.der,ylab="1st Derivative",xlab="Time Indices",type="l",ylim=c(-max(abs(temp.der)),max(abs(temp.der))))
+
+```
+Only on arxiv
+```{r fig.width=6, fig.height=3}
+cn <- 502
+cycle.length <- headloss_cycles_info$cycle_length[cn]
+x <- 1:(cycle.length+1)
+n <- length(x)
+lambda.grid <- 2^(seq(-6,8,1))
+omega.grid <- 2^(seq(0,8,1))
+y <- headloss_matrix[cn,1:(cycle.length+1)]
+y <- y[seq(1,n,2)]
+x <- 1:length(y)
+model <- hybrid.smoother.freq(x,y,lambda.grid,omega.grid,method="AICc",construct.from = "slope")
+x <- seq(1,n,2)
+n <- length(x)
+D <- matrix(0,nrow=(n),ncol=(n))
+D[lower.tri(D,diag=TRUE)] <- 1
+E <- (D%*%D)[,-1]
+D <- D[,-1]
+
+
+par(mfrow = c(1,3),mar=c(3.5,3.5,3,1),oma=c(1,1,1,1), mgp=c(2.3,.7,0))
+  plot(x,y,ylab="Headloss",xlab="Time Indices",type="l")
+  alpha.color <- adjustcolor("black", alpha.f = 0.5)
+  plot(x[-length(x)],model$gamma.coefs,xlab="Time Indices",ylab = bquote(kappa),ylim=c(-max(abs(model$gamma.coefs)),max(abs(model$gamma.coefs))),pch=16,cex=.6,col=alpha.color)
+  temp.der <- D%*%model$gamma.coefs
+  plot(x,temp.der,ylab="1st Derivative",xlab="Time Indices",type="l",ylim=c(-max(abs(temp.der)),max(abs(temp.der))))
+
+```
+
+
+
+

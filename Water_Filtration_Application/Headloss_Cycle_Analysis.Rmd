@@ -1,0 +1,373 @@
+---
+title: "Test All Cycles"
+author: "Matthew Hofkes"
+date: "2023-10-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+This code tests all 3305 cycles of the Denver Water headloss data for anomalies.  Cycles under 60 measurements (5 hours) are considered "short cycles" and not tested.  The code implements 
+1. the hybrid (elbow) approach 
+2. the hybrid (AICc) approach
+3. the Bayesian approach
+4. EWMA
+5. CUSUM 
+and then produces confusion tables for the results of each.  The code should be run in order.
+
+
+```{r}
+load("Separated_Filter_Cycles/headloss_matrix.rda")
+load("Separated_Filter_Cycles/headloss_cycles_info.rda")
+source("hybrid.smoother.freq.R")
+source("hybrid.smoother.bayes.R")
+```
+
+
+Frequentist (Elbow)
+```{r}
+all.analyzed.cycles.list.freq <- vector(mode = "list", length = 3305)
+all.cycles.anomaly.table.freq <- data.frame(cycle.number=1:3305,cycle.length=headloss_cycles_info$cycle_length-6,Anomalous=NA,Identified=NA,RMSE=NA,Max.CP=NA,run.time=NA)
+
+for (cn in 1:3305){
+  if (headloss_cycles_info$cycle_length[cn] > 60){
+    n <- headloss_cycles_info$cycle_length[cn]+1
+    x <- 1:(n-6)
+    y <- headloss_matrix[cn,4:(n-3)]
+    n <- length(x)
+  
+    lambda.grid <- 2^seq(2,-6,-1)
+    omega.grid <- 2^seq(4,16,1)
+    
+    init.time <- proc.time()
+    model <- hybrid.smoother.freq(x,y,lambda.grid,omega.grid,tolerance = 1e-4,method="elbow")
+    time <- time <- (proc.time()-init.time)[3]
+    all.analyzed.cycles.list.freq[[cn]] <- model
+    names(all.analyzed.cycles.list.freq)[cn] <- paste0("model.",cn)
+    all.cycles.anomaly.table.freq[cn,4] <- ifelse(length(model$change.points)!=0,"YES","NO")
+    all.cycles.anomaly.table.freq[cn,5] <- sqrt(sum(model$residuals^2)/n)
+    all.cycles.anomaly.table.freq[cn,6] <- ifelse(length(model$change.points)!=0, max(abs(model$gamma.coefs)[model$change.points]),NA)
+    all.cycles.anomaly.table.freq[cn,7] <- time
+  }
+  
+  if (headloss_cycles_info$cycle_length[cn] < 60){
+    all.analyzed.cycles.list.freq[[cn]] <- "Short Cycle"
+  }
+  
+  if(cn%%50==0) cat(cn," ")
+  
+}
+
+```
+
+
+Frequentist (AICc)
+```{r}
+all.analyzed.cycles.list.freq.AIC <- vector(mode = "list", length = 3305)
+all.cycles.anomaly.table.freq.AIC <- data.frame(cycle.number=1:3305,cycle.length=headloss_cycles_info$cycle_length-6,Anomalous=NA,Identified=NA,RMSE=NA,Max.CP=NA,run.time=NA)
+
+for (cn in 1:3305){
+  if (headloss_cycles_info$cycle_length[cn] > 60){
+    n <- headloss_cycles_info$cycle_length[cn]+1
+    x <- 1:(n-6)
+    y <- headloss_matrix[cn,4:(n-3)]
+    n <- length(x)
+  
+    lambda.grid <- 2^seq(2,-4,-1)
+    omega.grid <- 2^seq(4,16,1)
+    
+    init.time <- proc.time()
+    model <- hybrid.smoother.freq(x,y,lambda.grid,omega.grid,tolerance = 1e-4,method="AICc")
+    time <- time <- (proc.time()-init.time)[3]
+    all.analyzed.cycles.list.freq.AIC[[cn]] <- model
+    names(all.analyzed.cycles.list.freq.AIC)[cn] <- paste0("model.",cn)
+    all.cycles.anomaly.table.freq.AIC[cn,4] <- ifelse(length(model$change.points)!=0,"YES","NO")
+    all.cycles.anomaly.table.freq.AIC[cn,5] <- sqrt(sum(model$residuals^2)/n)
+    all.cycles.anomaly.table.freq.AIC[cn,6] <- ifelse(length(model$change.points)!=0, max(abs(model$gamma.coefs)[model$change.points]),NA)
+    all.cycles.anomaly.table.freq.AIC[cn,7] <- time
+  }
+  
+  if (headloss_cycles_info$cycle_length[cn] < 60){
+    all.analyzed.cycles.list.freq.AIC[[cn]] <- "Short Cycle"
+  }
+  
+  if(cn%%50==0) cat(cn," ")
+  
+}
+
+```
+
+
+
+Bayesian Approach
+```{r}
+all.analyzed.cycles.list.bayes <- vector(mode = "list", length = 3305)
+all.cycles.anomaly.table.bayes <- data.frame(cycle.number=1:3305,cycle.length=headloss_cycles_info$cycle_length-6,Anomalous=NA,Identified=NA,s=NA,max.gamma=NA,run.time=NA)
+
+for (cn in 1:3305){
+  if (headloss_cycles_info$cycle_length[cn] > 60){
+    n <- headloss_cycles_info$cycle_length[cn]+1
+    x <- 1:(n-6)
+    y <- headloss_matrix[cn,4:(n-3)]
+    n <- length(x)
+  
+    init.time <- proc.time()
+    model <- hybrid.smoother.bayes(x,y,n.chains = 2)
+    time <- time <- (proc.time()-init.time)[3]
+    
+    all.analyzed.cycles.list.bayes[[cn]] <- model
+    names(all.analyzed.cycles.list.bayes)[cn] <- paste0("model.",cn)
+    all.cycles.anomaly.table.bayes[cn,4] <- ifelse(length(model$change.points)!=0,"YES","NO")
+    all.cycles.anomaly.table.bayes[cn,5] <- model$s
+    all.cycles.anomaly.table.bayes[cn,6] <- ifelse(length(model$change.points)!=0, max(abs(model$gammas)),0)
+    all.cycles.anomaly.table.bayes[cn,7] <- time
+  }
+  
+  if (headloss_cycles_info$cycle_length[cn] < 60){
+    all.analyzed.cycles.list.bayes[[cn]] <- "Short Cycle"
+  }
+  
+  if(cn%%20==0) cat(cn," ")
+  
+}
+```
+
+
+
+
+CUSUM
+```{r}
+library(qcc)
+cusum.with.reset <- function(data,center=0,decision.interval=4,se.shift=.5){
+  data <- data - center
+  x.n <- length(data)
+  # sd.dd <- sd(data)
+  sd.dd <- sd.xbar.one(data)
+  # sd.dd <- cusum(detrended.data,decision.interval = 4,se.shift=.5)$std.dev
+  slack <- se.shift
+  limit <- decision.interval
+  cs.pos <- 0
+  cs.neg <- 0
+  cs.pos.vec <- rep(0,x.n)
+  cs.neg.vec <- rep(0,x.n)
+  for ( i in 1:x.n){
+    cs.pos <- max(cs.pos + data[i]/sd.dd - slack,0)
+    cs.neg <- min(cs.neg + data[i]/sd.dd + slack,0)
+    cs.pos.vec[i] <- cs.pos
+    cs.neg.vec[i] <- cs.neg
+    
+    if (cs.pos > limit | cs.neg < -limit){
+      cs.pos <- 0
+      cs.neg <- 0
+    }
+    
+    violations <- sort(c(which(cs.pos.vec>limit),which(cs.neg.vec< -limit)))
+  }
+  violations
+}
+
+all.analyzed.cycles.list.cusum <- vector(mode = "list", length = 3305)
+all.cycles.anomaly.table.cusum <- data.frame(cycle.number=1:3305,cycle.length=headloss_cycles_info$cycle_length-6,Anomalous=NA,Identified=NA,s=NA,max.gamma=NA,run.time=NA)
+
+for (cn in 1:3305){
+  if (headloss_cycles_info$cycle_length[cn] > 60){
+    n <- headloss_cycles_info$cycle_length[cn]+1
+    x <- 1:(n-6)
+    y <- headloss_matrix[cn,4:(n-3)]
+    n <- length(x)
+  
+    init.time <- proc.time()
+    ### Detrend
+    detrended.data <- Tps(x,y)$residuals
+    ### CUSUM
+    violations <- cusum.with.reset(detrended.data,center=0,decision.interval=4,se.shift=.5)
+    time <- time <- (proc.time()-init.time)[3]
+    
+    all.analyzed.cycles.list.cusum[[cn]] <- violations
+    names(all.analyzed.cycles.list.cusum)[cn] <- paste0("model.",cn)
+    all.cycles.anomaly.table.cusum[cn,4] <- ifelse(length(violations)!=0,"YES","NO")
+    # all.cycles.anomaly.table.cusum[cn,5] <- model$s
+    # all.cycles.anomaly.table.cusum[cn,6] <- ifelse(length(violations)!=0, max(violations),0)
+    all.cycles.anomaly.table.cusum[cn,7] <- time
+  }
+  
+  if (headloss_cycles_info$cycle_length[cn] < 60){
+    all.analyzed.cycles.list.cusum[[cn]] <- "Short Cycle"
+  }
+  
+  if(cn%%20==0) cat(cn," ")
+  
+}
+```
+
+
+
+
+EWMA
+```{r}
+library(qcc)
+
+all.analyzed.cycles.list.ewma <- vector(mode = "list", length = 3305)
+all.cycles.anomaly.table.ewma <- data.frame(cycle.number=1:3305,cycle.length=headloss_cycles_info$cycle_length-6,Anomalous=NA,Identified=NA,s=NA,max.gamma=NA,run.time=NA)
+
+for (cn in 1:3305){
+  if (headloss_cycles_info$cycle_length[cn] > 60){
+    n <- headloss_cycles_info$cycle_length[cn]+1
+    x <- 1:(n-6)
+    y <- headloss_matrix[cn,4:(n-3)]
+    n <- length(x)
+  
+    init.time <- proc.time()
+    ### Detrend
+    detrended.data <- Tps(x,y)$residuals
+    ### EWMA
+    model <- ewma(detrended.data,center=0,plot=FALSE,lambda=.3)
+    violations <- unique(c(unique(model$violations), unique(model$violations) + 1, unique(model$violations) - 1)) 
+    time <- time <- (proc.time()-init.time)[3]
+    
+    all.analyzed.cycles.list.ewma[[cn]] <- violations
+    names(all.analyzed.cycles.list.ewma)[cn] <- paste0("model.",cn)
+    all.cycles.anomaly.table.ewma[cn,4] <- ifelse(length(violations)!=0,"YES","NO")
+    # all.cycles.anomaly.table.ewma[cn,5] <- model$s
+    # all.cycles.anomaly.table.ewma[cn,6] <- ifelse(length(violations)!=0, max(violations),0)
+    all.cycles.anomaly.table.ewma[cn,7] <- time
+  }
+  
+  if (headloss_cycles_info$cycle_length[cn] < 60){
+    all.analyzed.cycles.list.ewma[[cn]] <- "Short Cycle"
+  }
+  
+  if(cn%%20==0) cat(cn," ")
+  
+}
+```
+
+
+
+
+
+
+
+
+Locations of anomalous cycles and completing anomaly tables
+```{r}
+anomalies <- c(27,38,76,135,136,170,203,205,227,346,369,383,387,434,446,502,615,657,860,927,1077,1309,1339,1374,1400,1421,1471,1536,1592,1594,1659,1670,1679,1704,1836,1841,1899,1945,2009,2018,2038,2094,2182,2225,2269,2320,2377,2409,2424,2433,2515,2540,2633,2655,2724,2760,2861,2885,2905,2963,2994,3019,3114,3190,3201)
+
+all.cycles.anomaly.table.bayes$Anomalous[!is.na(all.cycles.anomaly.table.bayes$Identified)]<-"NO"
+for (i in anomalies){
+  all.cycles.anomaly.table.bayes$Anomalous[i] <- "YES"
+}
+
+all.cycles.anomaly.table.freq$Anomalous[!is.na(all.cycles.anomaly.table.freq$Identified)]<-"NO"
+for (i in anomalies){
+  all.cycles.anomaly.table.freq$Anomalous[i] <- "YES"
+}
+  
+all.cycles.anomaly.table.freq.AIC$Anomalous[!is.na(all.cycles.anomaly.table.freq.AIC$Identified)]<-"NO"
+for (i in anomalies){
+  all.cycles.anomaly.table.freq.AIC$Anomalous[i] <- "YES"
+}
+
+all.cycles.anomaly.table.cusum$Anomalous[!is.na(all.cycles.anomaly.table.cusum$Identified)]<-"NO"
+for (i in anomalies){
+  all.cycles.anomaly.table.cusum$Anomalous[i] <- "YES"
+}
+
+all.cycles.anomaly.table.ewma$Anomalous[!is.na(all.cycles.anomaly.table.ewma$Identified)]<-"NO"
+for (i in anomalies){
+  all.cycles.anomaly.table.ewma$Anomalous[i] <- "YES"
+}
+
+```
+
+
+
+Confusion Tables 
+```{r}
+library(caret)
+```
+
+
+
+FREQ (Elbow) Confusion Table
+
+```{r}
+#Frequentist (elbow) - With q1 sds Buffer and requirement that disturbance is at least q2 units
+q1 <- 0
+q2 <- 0
+temp.table <- all.cycles.anomaly.table.freq
+temp.table$Identified[temp.table$Max.CP<q1*temp.table$RMSE | temp.table$Max.CP<q2] <- "NO" 
+predicted <- as.factor(temp.table$Identified[!is.na(temp.table$Identified)])    
+expected <- as.factor(temp.table$Anomalous[!is.na(temp.table$Identified)])
+confusionMatrix(predicted,expected)
+```
+
+
+
+Freq (AICc) Confusion Table
+
+```{r}
+#Frequentist(AICc) - With q1 sds Buffer and requirement that disturbance is at least q2 units
+q1 <- 0
+q2 <- .15
+temp.table <- all.cycles.anomaly.table.freq.AIC
+temp.table$Identified[temp.table$Max.CP<q1*temp.table$RMSE | temp.table$Max.CP<q2] <- "NO" 
+predicted <- as.factor(temp.table$Identified[!is.na(temp.table$Identified)])    
+expected <- as.factor(temp.table$Anomalous[!is.na(temp.table$Identified)])
+confusionMatrix(predicted,expected)
+```
+
+
+
+Bayes Confusion Table
+
+```{r}
+#Bayesian - With no buffer and requirement that disturbance is at least q2 units
+q1 <- 0
+q2 <- .15
+temp.table <- all.cycles.anomaly.table.bayes
+temp.table$Identified[temp.table$max.gamma<q1*temp.table$s | temp.table$max.gamma<q2] <- "NO" 
+predicted <- as.factor(temp.table$Identified[!is.na(temp.table$Identified)])    
+expected <- as.factor(temp.table$Anomalous[!is.na(temp.table$Identified)])
+confusionMatrix(predicted,expected)
+```
+
+
+Cusum Confusion Table
+
+```{r}
+#Cusum
+temp.table <- all.cycles.anomaly.table.cusum
+predicted <- as.factor(temp.table$Identified[!is.na(temp.table$Identified)])    
+expected <- as.factor(temp.table$Anomalous[!is.na(temp.table$Identified)])
+confusionMatrix(predicted,expected)
+```
+
+EWMA Confusion Table
+
+```{r}
+#EWMA
+temp.table <- all.cycles.anomaly.table.ewma
+predicted <- as.factor(temp.table$Identified[!is.na(temp.table$Identified)])    
+expected <- as.factor(temp.table$Anomalous[!is.na(temp.table$Identified)])
+confusionMatrix(predicted,expected)
+```
+
+
+
+Create Timing Plot
+```{r}
+# smaller.table.freq <- all.cycles.anomaly.table.freq[!is.na(all.cycles.anomaly.table.freq$Anomalous),]
+# smaller.table.bayes <- all.cycles.anomaly.table.bayes[!is.na(all.cycles.anomaly.table.bayes$Anomalous),]
+# smaller.table.freq <- smaller.table.freq[!(smaller.table.bayes$run.time>80 & smaller.table.bayes$cycle.length<450),]
+# smaller.table.bayes <- smaller.table.bayes[!(smaller.table.bayes$run.time>80 & smaller.table.bayes$cycle.length<450),]
+# 
+# plot(smaller.table.bayes$cycle.length,smaller.table.bayes$run.time/4,cex=.6,log="xy", main="Runtime Comparison",ylab = "Computation Time (Seconds)",xlab="Cycle Length",col="blue",ylim=c(.05,40),pch=17)
+# points(smaller.table.freq$cycle.length,smaller.table.freq$run.time*1/3,log="xy",cex=.6,col="red",pch=16)
+# legend(60, 25, c("Frequentist (Elbow)","Bayesian"), col=c("red","blue"),pch=c(16,17))
+```
+
+

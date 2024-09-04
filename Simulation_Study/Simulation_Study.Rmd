@@ -1,0 +1,404 @@
+---
+title: "Simulation Study"
+author: "Matthew Hofkes"
+date: "2024-09-04"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This markdown is the code for the simulation study.  The results are already included in the Simulation Study folder.
+
+```{r}
+library(fields)
+library(caret) #confusion matrix
+library(qcc) #ewma
+library(changepoint) #pelts
+
+source("../Functions/hybrid.smoother.freq.R")
+```
+
+
+Generation of Curves and Data (Figure of trends in section 5)
+```{r}
+x.n <- 100
+x <- 1:x.n
+X <- cbind(1,x)
+
+#Trends
+trend.1 <- 2*2*(10*sin(1/10*x))
+trend.2 <- 2*-3.1*(25*exp(x/10)/(exp(4)+exp(x/10))-10)
+trend.3 <- 2*1.4*(8*(x-100)/(x+25)+20)
+trend.4 <- 2*1*(1/80000*x*(x-20)*(x-60)*(x-110))
+
+
+cardinalX <- quantile(x,c(.1,.9))
+s <- 1/50
+K <- Tps.cov(x,x,cardinalX=cardinalX)
+Cov.chol <- chol(K)
+trend.5.n <- 10000
+trend.5.matrix <- matrix(NA,x.n,trend.5.n)
+set.seed(1)
+for (i in 1:trend.5.n){
+  B <- c(rnorm(1),rnorm(1,0,.1))
+  f <- 2*4*(X%*%B + s*t(Cov.chol)%*%rnorm(x.n))
+  trend.5.matrix[,i] <- f
+
+}
+
+B <- c(rnorm(1,0,1),rnorm(1,0,.1))
+trend.6 <- 2*4*(X%*%B + 1/1000*t(Cov.chol)%*%rnorm(x.n))
+B <- c(rnorm(1,0,1),rnorm(1,0,.1))
+trend.7 <- 2*4*(X%*%B + 1/500*t(Cov.chol)%*%rnorm(x.n))
+B <- c(rnorm(1,0,1),rnorm(1,0,.1))
+trend.8 <- 2*4*(X%*%B + 1/200*t(Cov.chol)%*%rnorm(x.n))
+B <- c(rnorm(1,0,1),rnorm(1,0,.1))
+trend.9 <- 2*4*(X%*%B + 1/10*t(Cov.chol)%*%rnorm(x.n))
+trend.10 <- 10*sin(1/10*x)
+
+plot(x,trend.1,type="l",col="red",xlim =c(-35,100),ylim=c(-100,80),xlab="Time Index",ylab="Measurement",xaxt = "n")
+points(x,trend.2,type="l",col="blue",lty=2)
+points(x,trend.3,type="l",col="brown",lty=3)
+points(x,trend.4,type="l",col="magenta",lty=4)
+points(x,trend.5.matrix[,105]-50,type="l",col="green",lty=5)
+points(x,trend.6,type="l",col="orange",lty=6)
+points(x,trend.7,type="l",col="cyan",lty=7)
+points(x,trend.8,type="l",col="black",lty=8)
+points(x,trend.9,type="l",col="darkgreen",lty=9)
+points(x,trend.10,type="l",col="purple",lty=10)
+legend(-37,83,legend=c("Trend 1","Trend 2","Trend 3","Trend 4","Trend 5","Trend 6","Trend 7","Trend 8","Trend 9","Trend 10"), col=c("red","blue","brown","magenta","green","orange","cyan","black","darkgreen","purple"),lty=1:10)
+axis(1, at = seq(0,100,20), labels = seq(0,100,20))
+
+all.trends.list <- list(trend.1,trend.2,trend.3,trend.4,trend.5.matrix[,105],trend.6)
+```
+
+
+
+Levels for Study
+```{r}
+noise.grid <- exp(seq(-4,-1,1))
+jump.size.grid <- c(-exp(seq(2,-2,-.25)),exp(seq(-2,2,.25)))  
+n.trials <- 200 
+lambda.grid <- 2^(seq(-6,8,2))
+omega.grid <- 2^(seq(0,8,2))
+trends <- c(1:10)
+anomalies <- 0:2
+```
+
+
+
+
+Simulation study
+```{r}
+
+###
+### CUSUM with reset function
+###
+
+cusum.with.reset <- function(data,center=0,decision.interval=4,se.shift=.5){
+  data <- data - center
+  x.n <- length(data)
+  sd.dd <- sd.xbar.one(data)
+  slack <- se.shift
+  limit <- decision.interval
+  cs.pos <- 0
+  cs.neg <- 0
+  cs.pos.vec <- rep(0,x.n)
+  cs.neg.vec <- rep(0,x.n)
+  for ( i in 1:x.n){
+    cs.pos <- max(cs.pos + data[i]/sd.dd - slack,0)
+    cs.neg <- min(cs.neg + data[i]/sd.dd + slack,0)
+    cs.pos.vec[i] <- cs.pos
+    cs.neg.vec[i] <- cs.neg
+    
+    if (cs.pos > limit | cs.neg < -limit){
+      cs.pos <- 0
+      cs.neg <- 0
+    }
+    
+    violations <- sort(c(which(cs.pos.vec>limit),which(cs.neg.vec< -limit)))
+  }
+  violations
+}
+
+###
+### data frames for storing results
+###
+
+hybrid.aicc.results <- data.frame(trend=NA,noise.level=NA,best.lambda=NA,best.omega=NA,n.anomalies=NA,location.1=NA,jump.size.1=NA,derivative.1=NA,second.derivative.1=NA,detected.1=NA,found.at.1=NA,est.jump.size.1=NA,location.2=NA,jump.size.2=NA,derivative.2=NA,second.derivative.2=NA,detected.2=NA,found.at.2=NA,est.jump.size.2=NA,location.3=NA,jump.size.3=NA,derivative.3=NA,detected.3=NA,found.at.3=NA,est.jump.size.3=NA,false.positive=NA,false.positive.max.size=NA)
+
+hybrid.elbow.results <- data.frame(trend=NA,noise.level=NA,best.lambda=NA,best.omega=NA,n.anomalies=NA,location.1=NA,jump.size.1=NA,derivative.1=NA,second.derivative.1=NA,detected.1=NA,found.at.1=NA,est.jump.size.1=NA,location.2=NA,jump.size.2=NA,derivative.2=NA,second.derivative.2=NA,detected.2=NA,found.at.2=NA,est.jump.size.2=NA,location.3=NA,jump.size.3=NA,derivative.3=NA,detected.3=NA,found.at.3=NA,est.jump.size.3=NA,false.positive=NA,false.positive.max.size=NA)
+
+cusum.results <- data.frame(trend=NA,noise.level=NA,best.lambda=NA,best.omega=NA,n.anomalies=NA,location.1=NA,jump.size.1=NA,derivative.1=NA,second.derivative.1=NA,detected.1=NA,found.at.1=NA,est.jump.size.1=NA,location.2=NA,jump.size.2=NA,derivative.2=NA,second.derivative.2=NA,detected.2=NA,found.at.2=NA,est.jump.size.2=NA,location.3=NA,jump.size.3=NA,derivative.3=NA,detected.3=NA,found.at.3=NA,est.jump.size.3=NA,false.positive=NA,false.positive.max.size=NA)
+
+ewma.results <- data.frame(trend=NA,noise.level=NA,best.lambda=NA,best.omega=NA,n.anomalies=NA,location.1=NA,jump.size.1=NA,derivative.1=NA,second.derivative.1=NA,detected.1=NA,found.at.1=NA,est.jump.size.1=NA,location.2=NA,jump.size.2=NA,derivative.2=NA,second.derivative.2=NA,detected.2=NA,found.at.2=NA,est.jump.size.2=NA,location.3=NA,jump.size.3=NA,derivative.3=NA,detected.3=NA,found.at.3=NA,est.jump.size.3=NA,false.positive=NA,false.positive.max.size=NA)
+
+pelts.results <- data.frame(trend=NA,noise.level=NA,best.lambda=NA,best.omega=NA,n.anomalies=NA,location.1=NA,jump.size.1=NA,derivative.1=NA,second.derivative.1=NA,detected.1=NA,found.at.1=NA,est.jump.size.1=NA,location.2=NA,jump.size.2=NA,derivative.2=NA,second.derivative.2=NA,detected.2=NA,found.at.2=NA,est.jump.size.2=NA,location.3=NA,jump.size.3=NA,derivative.3=NA,detected.3=NA,found.at.3=NA,est.jump.size.3=NA,false.positive=NA,false.positive.max.size=NA)
+
+trends <- c(6)
+anomalies <- 0:2 
+window.width <- 4 
+
+set.seed(1)
+r <- 1
+for (i.trend in trends){
+  trend <- all.trends.list[[i.trend]]
+  derivative <- trend[-1]-trend[-x.n]
+  second.derivative<- derivative[-1]-derivative[-length(derivative)]
+  for (i.n.anomalies in anomalies) {
+    
+    if (i.n.anomalies==1){
+      for (i.jump.size in jump.size.grid){
+        jump <- i.jump.size
+        for(i.noise in noise.grid){
+          for (i.trial in 1:n.trials){
+            jump.location <- sample(x[-c(1:5,(x.n-4):x.n)],1)
+            noise <- rnorm(x.n,0,i.noise)
+            y.temp <- trend + noise + c(rep(0,jump.location-1),rep(jump,x.n-jump.location+1))
+            derivative.est <- derivative[jump.location-1] 
+            second.derivative.est <- second.derivative[jump.location-1]
+            
+            ### AICc
+            initial.gamma.guess <- initial.gamma.guess <- rep(0,length(x)-1) 
+            model <- hybrid.smoother.freq(x,y.temp,lambda.grid,omega.grid,tolerance = 1e-3,initial.gamma.guess=initial.gamma.guess,method="AICc",construct.from="center",at.least=0)
+            detected <- ifelse(jump.location %in% model$change.points,1,0)
+            if(detected==1){ 
+              jump.loc.est <- which.max(abs(model$gamma.coefs))+1
+              jump.size.est <- sum(model$gamma.coefs[max(1,jump.loc.est + -window.width):min(x.n-1,jump.loc.est+window.width)])
+            } else{
+              jump.loc.est <- NA
+              jump.size.est <- NA}
+            false.positive <- ifelse( !( prod(model$change.points%in%c((jump.location-window.width):(jump.location+window.width), (1:5), ((x.n-4):x.n) ))),1,0)
+            false.positive.max.size <- ifelse(false.positive==1,max(abs(model$gamma.coefs[-c(1:5, (x.n-4):x.n,max(1,jump.location-window.width):min(x.n,jump.location+window.width))])),0)
+            hybrid.aicc.results[r,c(1:12,26,27)] <- c(i.trend,i.noise,model$best.lambda,model$best.omega,i.n.anomalies,jump.location,jump,derivative.est,second.derivative.est,detected,jump.loc.est,jump.size.est,false.positive,false.positive.max.size)
+            
+            ### Elbow
+            initial.guess <- ifelse(r==1,rep(0,length(x)-1),model$gamma.coefs)
+            model <- hybrid.smoother.freq(x,y.temp,lambda.grid,omega.grid,tolerance = 1e-3,initial.gamma.guess=initial.gamma.guess,method="elbow",construct.from="center",at.least=0)
+            detected <- ifelse(jump.location %in% model$change.points,1,0)
+            if(detected==1){ 
+              jump.loc.est <- which.max(abs(model$gamma.coefs))+1
+              jump.size.est <- sum(model$gamma.coefs[max(1,jump.loc.est + -window.width):min(x.n-1,jump.loc.est+window.width)])
+            } else{
+              jump.loc.est <- NA
+              jump.size.est <- NA}
+            false.positive <- ifelse( !( prod(model$change.points%in%c((jump.location-window.width):(jump.location+window.width), (1:5), ((x.n-4):x.n) ))),1,0)
+            false.positive.max.size <- ifelse(false.positive==1,max(abs(model$gamma.coefs[-c(1:5, (x.n-4):x.n,max(1,jump.location-window.width):min(x.n,jump.location+window.width))])),0)
+
+            hybrid.elbow.results[r,c(1:12,26,27)] <- c(i.trend,i.noise,model$best.lambda,model$best.omega,i.n.anomalies,jump.location,jump,derivative.est,second.derivative.est,detected,jump.loc.est,jump.size.est,false.positive,false.positive.max.size)
+            
+            
+            ###
+            ### Detrend data for two step methods
+            ###
+            detrended.data <- Tps(x,y.temp)$residuals
+            
+            
+            ### CUSUM
+            violations <- cusum.with.reset(detrended.data,center=0,decision.interval=4,se.shift=.5)
+            detected <- ifelse(jump.location %in% violations,1,0)
+            ### Not sure how to estimate jump size here.  The potential anomaly is split between lower and upper.
+            false.positive <- ifelse( !( prod(violations%in%c((jump.location-window.width):(jump.location+window.width), (1:5), ((x.n-4):x.n) ))),1,0) #This requires fixing.  It takes a long time to recenter...
+            ### Not sure about size here either....
+            
+            cusum.results[r,c(1:12,26,27)] <- c(i.trend,i.noise,NA,NA,i.n.anomalies,jump.location,jump,derivative.est,second.derivative.est,detected,NA,NA,false.positive,false.positive.max.size)
+            
+            
+            ### EWMA
+            # detrended.data <- Tps(x,y.temp)$residuals
+            model <- ewma(detrended.data,center=0,plot=FALSE,lambda=.3)
+            violations <- unique(c(unique(model$violations), unique(model$violations) + 1, unique(model$violations) - 1)) 
+            detected <- ifelse(jump.location %in% violations,1,0)
+            false.positive <- ifelse( !( prod(model$violations%in%c((jump.location-window.width):(jump.location+window.width), (1:5), ((x.n-4):x.n) ))),1,0)
+            ewma.results[r,c(1:12,26,27)] <- c(i.trend,i.noise,NA,NA,i.n.anomalies,jump.location,jump,derivative.est,second.derivative.est,detected,NA,NA,false.positive,false.positive.max.size)
+            
+            
+            ### PELTS
+            model <- cpt.mean(detrended.data[1:x.n],method="PELT")
+            detected <- ifelse(jump.location %in% cpts(model),1,0)
+            false.positive <- ifelse( !( prod(cpts(model)%in%c((jump.location-window.width):(jump.location+window.width), (1:5), ((x.n-4):x.n) ))),1,0)
+            pelts.results[r,c(1:12,26,27)] <- c(i.trend,i.noise,NA,NA,i.n.anomalies,jump.location,jump,derivative.est,second.derivative.est,detected,NA,NA,false.positive,false.positive.max.size)
+            
+            r <- r + 1
+            if(r%%500==0){print(r)}
+          }
+        }
+      }
+    }
+    
+    
+    
+    
+    ### 2 anomalies
+    if (i.n.anomalies==2){
+      for (i.jump.size in jump.size.grid){
+        jump <- i.jump.size
+        for(i.noise in noise.grid){
+          for (i.trial in 1:n.trials){
+            jump.location <- sample(x[-c(1:5,(x.n-4):x.n)],1)
+            jump.location.2 <- sample(x[-c(1:5,(x.n-4):x.n,jump.location)],1)
+            noise <- rnorm(x.n,0,i.noise)
+            y.temp <- trend + noise + c(rep(0,jump.location-1),rep(jump,x.n-jump.location+1))+c(rep(0,jump.location.2-1),rep(-jump,x.n-jump.location.2+1))
+            derivative.est <- derivative[jump.location-1]
+            derivative.est.2 <- derivative[jump.location.2-1]
+            second.derivative.est <- second.derivative[jump.location-1]
+            second.derivative.est.2 <- second.derivative[jump.location.2-1]
+            
+            ### AICc
+            initial.gamma.guess <- rep(0,length(x)-1)
+            model <- hybrid.smoother.freq(x,y.temp,lambda.grid,omega.grid,tolerance = 1e-3,initial.gamma.guess=initial.gamma.guess,method="AICc",construct.from="center",at.least=0)
+            detected <- ifelse(jump.location %in% model$change.points,1,0)
+            if(detected==1){ 
+              jump.loc.est <- max(1,jump.location - window.width) - 1 + which.max( abs( model$gamma.coefs[max(1,jump.location - window.width) :min(x.n-1,jump.location+window.width)]) )
+              jump.size.est <- sum(model$gamma.coefs[max(1,jump.loc.est + -window.width):min(x.n-1,jump.loc.est+window.width)])
+            } else{
+              jump.loc.est <- NA
+              jump.size.est <- NA}
+            detected.2 <- ifelse(jump.location.2 %in% model$change.points,1,0)
+            if(detected.2==1){ 
+              jump.loc.est.2 <- max(1,jump.location.2 - window.width) - 1 + which.max( abs( model$gamma.coefs[max(1,jump.location.2 - window.width) :min(x.n-1,jump.location.2 + window.width)]) )
+              jump.size.est.2 <- sum(model$gamma.coefs[max(1,jump.loc.est.2 + -window.width):min(x.n-1,jump.loc.est.2+window.width)])
+            } else{
+              jump.loc.est.2 <- NA
+              jump.size.est.2 <- NA}
+            false.positive <- ifelse( !( prod(model$change.points%in%c((jump.location-window.width):(jump.location+window.width), (jump.location.2-window.width):(jump.location.2+window.width), (1:5), ((x.n-4):x.n)  ))),1,0)
+            false.positive.max.size <- ifelse(false.positive==1,max(abs(model$gamma.coefs[-c(1:5, (x.n-4):x.n,max(1,jump.location-window.width):min(x.n,jump.location+window.width),max(1,jump.location.2-window.width):min(x.n,jump.location.2+window.width))])),0)
+
+            hybrid.aicc.results[r,c(1:19,26,27)] <- c(i.trend,i.noise,model$best.lambda,model$best.omega,i.n.anomalies,jump.location,jump,derivative.est,second.derivative.est,detected,jump.loc.est,jump.size.est,jump.location.2,-jump,derivative.est.2,second.derivative.est.2,detected.2,jump.loc.est.2,jump.size.est.2,false.positive,false.positive.max.size)
+            
+            ### Elbow
+            initial.guess <- ifelse(r==1,rep(0,length(x)-1),model$gamma.coefs)            
+            model <- hybrid.smoother.freq(x,y.temp,lambda.grid,omega.grid,tolerance = 1e-3,initial.gamma.guess=initial.gamma.guess,method="elbow",construct.from="center",at.least=0)
+            detected <- ifelse(jump.location %in% model$change.points,1,0)
+            if(detected==1){ 
+              jump.loc.est <- max(1,jump.location - window.width) - 1 + which.max( abs( model$gamma.coefs[max(1,jump.location - window.width) :min(x.n-1,jump.location+window.width)]) )
+              jump.size.est <- sum(model$gamma.coefs[max(1,jump.loc.est + -window.width):min(x.n-1,jump.loc.est+window.width)])
+            } else{
+              jump.loc.est <- NA
+              jump.size.est <- NA}
+            detected.2 <- ifelse(jump.location.2 %in% model$change.points,1,0)
+            if(detected.2==1){ 
+              jump.loc.est.2 <- max(1,jump.location.2 - window.width) - 1 + which.max( abs( model$gamma.coefs[max(1,jump.location.2 - window.width) :min(x.n-1,jump.location.2 + window.width)]) )
+              jump.size.est.2 <- sum(model$gamma.coefs[max(1,jump.loc.est.2 + -window.width):min(x.n-1,jump.loc.est.2+window.width)])
+            } else{
+              jump.loc.est.2 <- NA
+              jump.size.est.2 <- NA}
+            false.positive <- ifelse( !( prod(model$change.points%in%c((jump.location-window.width):(jump.location+window.width), (jump.location.2-window.width):(jump.location.2+window.width), (1:5), ((x.n-4):x.n)  ))),1,0)
+            false.positive.max.size <- ifelse(false.positive==1,max(abs(model$gamma.coefs[-c(1:5, (x.n-4):x.n,max(1,jump.location-window.width):min(x.n,jump.location+window.width),max(1,jump.location.2-window.width):min(x.n,jump.location.2+window.width))])),0)
+
+            hybrid.elbow.results[r,c(1:19,26,27)] <- c(i.trend,i.noise,model$best.lambda,model$best.omega,i.n.anomalies,jump.location,jump,derivative.est,second.derivative.est,detected,jump.loc.est,jump.size.est,jump.location.2,-jump,derivative.est.2,second.derivative.est.2,detected.2,jump.loc.est.2,jump.size.est.2,false.positive,false.positive.max.size)
+            
+            ###
+            ### Detrend for two step methods
+            ###
+          
+            detrended.data <- Tps(x,y.temp)$residuals
+          
+              
+            ### CUSUM
+            violations <- cusum.with.reset(detrended.data,center=0,decision.interval=4,se.shift=.5)
+            detected <- ifelse(jump.location %in% violations,1,0)
+            detected.2 <- ifelse(jump.location.2 %in% violations,1,0)
+            false.positive <- ifelse( !( prod(violations%in%c((jump.location-window.width):(jump.location+window.width), (1:5), ((x.n-4):x.n) ))),1,0) 
+            cusum.results[r,c(1:19,26,27)] <- c(i.trend,i.noise,NA,NA,i.n.anomalies,jump.location,jump,derivative.est,second.derivative.est,detected,NA,NA,jump.location.2,-jump,derivative.est.2,second.derivative.est.2,detected.2,NA,NA,false.positive,false.positive.max.size)
+            
+            
+            ### EWMA
+            model <- ewma(detrended.data,center=0,plot=FALSE)
+            violations <- unique(c(unique(model$violations), unique(model$violations) + 1, unique(model$violations) - 1))
+            detected <- ifelse(jump.location %in% violations,1,0)
+            detected.2 <- ifelse(jump.location.2 %in% violations,1,0)
+            false.positive <- ifelse( !( prod(violations%in%c((jump.location-window.width):(jump.location+window.width), (jump.location.2-window.width):(jump.location.2+window.width), (1:5), ((x.n-4):x.n)  ))),1,0)
+            ewma.results[r,c(1:19,26,27)] <- c(i.trend,i.noise,NA,NA,i.n.anomalies,jump.location,jump,derivative.est,second.derivative.est,detected,NA,NA,jump.location.2,-jump,derivative.est.2,second.derivative.est.2,detected.2,NA,NA,false.positive,false.positive.max.size)
+            
+            
+            ### PELTS
+            model <- cpt.mean(detrended.data[1:x.n], method="PELT")
+            detected <- ifelse(jump.location %in% cpts(model),1,0)
+            detected.2 <- ifelse(jump.location.2 %in% cpts(model),1,0)
+            false.positive <- ifelse( !( prod(cpts(model)%in%c((jump.location-window.width):(jump.location+window.width), (jump.location.2-window.width):(jump.location.2+window.width), (1:5), ((x.n-4):x.n)  ))),1,0)
+            pelts.results[r,c(1:19,26,27)] <- c(i.trend,i.noise,NA,NA,i.n.anomalies,jump.location,jump,derivative.est,second.derivative.est,detected,NA,NA,jump.location.2,-jump,derivative.est.2,second.derivative.est.2,detected.2,NA,NA,false.positive,false.positive.max.size)
+            
+            
+            r <- r + 1
+            if(r%%500==0){print(r)}
+          }
+        }
+      }
+    }
+  
+    
+    ### 0 anomalies
+    if (i.n.anomalies==0){
+      
+        jump <- NA
+        for(i.noise in noise.grid){
+          for (i.trial in 1:n.trials){
+            jump.location <- NA
+            noise <- rnorm(x.n,0,i.noise)
+            y.temp <- trend + noise 
+            
+            ### AICc 
+            initial.gamma.guess <- rep(0,length(x)-1)
+            model <- hybrid.smoother.freq(x,y.temp,lambda.grid,omega.grid,tolerance = 1e-3,initial.gamma.guess=initial.gamma.guess,method="AICc",construct.from="center",at.least=0)
+            detected <- NA
+            false.positive <- ifelse( !( prod(model$change.points%in%c((1:5), ((x.n-4):x.n)  ))),1,0)
+            false.positive.max.size <- ifelse(false.positive==1,max(abs(model$gamma.coefs[-c(1:5, (x.n-4):x.n)])),0)
+
+            hybrid.aicc.results[r,c(1:6,26,27)] <- c(i.trend,i.noise,model$best.lambda,model$best.omega,i.n.anomalies,jump.location,false.positive,false.positive.max.size)
+            
+            ### Elbow
+            initial.guess <- ifelse(r==1,rep(0,length(x)-1),model$gamma.coefs) 
+            model <- hybrid.smoother.freq(x,y.temp,lambda.grid,omega.grid,tolerance = 1e-3,initial.gamma.guess=initial.gamma.guess,method="elbow",construct.from="center",at.least=0)
+            detected <- NA
+            false.positive <- ifelse( !( prod(model$change.points%in%c((1:5), ((x.n-4):x.n)  ))),1,0)
+            false.positive.max.size <- ifelse(false.positive==1,max(abs(model$gamma.coefs[-c(1:5, (x.n-4):x.n)])),0)
+
+            hybrid.elbow.results[r,c(1:6,26,27)] <- c(i.trend,i.noise,model$best.lambda,model$best.omega,i.n.anomalies,jump.location,false.positive,false.positive.max.size)
+            
+            ###
+            ### Detrend for two step methods
+            ###
+            detrended.data <- Tps(x,y.temp)$residuals
+            
+            
+            ### CUSUM
+            violations <- cusum.with.reset(detrended.data,center=0,decision.interval=4,se.shift=.5)
+            false.positive <- ifelse( !( prod(violations%in%c((1:5), ((x.n-4):x.n) ))),1,0)
+            cusum.results[r,c(1:12,26,27)] <- c(i.trend,i.noise,NA,NA,i.n.anomalies,NA,NA,NA,NA,detected,NA,NA,false.positive,false.positive.max.size)
+            
+            ### EWMA
+            model <- ewma(detrended.data,center=0,plot=FALSE)
+            detected <- NA
+            false.positive <- ifelse( !( prod(model$violations%in%c( (1:5), ((x.n-4):x.n) ))),1,0)
+            ewma.results[r,c(1:12,26,27)] <- c(i.trend,i.noise,NA,NA,i.n.anomalies,NA,NA,NA,NA,detected,NA,NA,false.positive,false.positive.max.size)
+            
+            ### PELTS
+            model <- cpt.mean(detrended.data[1:x.n], method="PELT")
+            detected <- NA
+            false.positive <- ifelse( !( prod(cpts(model)%in%c( (1:5), ((x.n-4):x.n) ))),1,0)
+            pelts.results[r,c(1:12,26,27)] <- c(i.trend,i.noise,NA,NA,i.n.anomalies,NA,NA,NA,NA,detected,NA,NA,false.positive,false.positive.max.size)
+            
+            
+            r <- r + 1
+            if(r%%500==0){print(r)}
+          }
+        }
+    } 
+    
+    
+    
+    
+    
+    
+  }
+}
+
+```
+
+
+
+
+
