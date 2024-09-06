@@ -135,7 +135,7 @@ hybrid.smoother.freq <- function(x,y,lambda.grid,omega.grid,tolerance = 1e-3,ini
   
   p <- dim(D)[2]
   
-  #Prep for finding S - Simulataneous Diagonalization
+  #Prep for finding S - Simultaneous Diagonalization
   eig.tbb <- eigen(tbb, symmetric=TRUE)
   inv.sym.sqrt.tbb <-
     eig.tbb$vectors%*%diag(1/sqrt(eig.tbb$values))%*%
@@ -190,9 +190,6 @@ hybrid.smoother.freq <- function(x,y,lambda.grid,omega.grid,tolerance = 1e-3,ini
       sparsity.0norm[l.i,w.j] <- sum(gamma.coefs != 0)
       hat.matrix <-  basis %*% smoother
       edf[l.i,w.j]  <- min(n , sum(diag( hat.matrix )) + sparsity.0norm[l.i,w.j] )
-      ### temporary change
-      # edf[l.i,w.j]  <- min(n , sum(diag( hat.matrix )) )
-      ###
       s.est <- SSR/(n)
       AIC[l.i,w.j] <- log(s.est) + (n+2*edf[l.i,w.j])/n
       AICc[l.i,w.j] <- log(s.est) + (n+edf[l.i,w.j])/(n-edf[l.i,w.j])

@@ -33,4 +33,4 @@ for (cn in 1:3305){
   
 }
 
-save(all.cycles.anomaly.table.freq.bayes,file = "UWTF.Bayes.results.Rda")
+save(all.cycles.anomaly.table.bayes,file = "UWTF.Bayes.results.Rda")

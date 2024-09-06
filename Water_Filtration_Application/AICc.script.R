@@ -23,7 +23,7 @@ for (cn in 1:3305){
     names(all.analyzed.cycles.list.freq.AIC)[cn] <- paste0("model.",cn)
     all.cycles.anomaly.table.freq.AIC[cn,4] <- ifelse(length(model$change.points)!=0,"YES","NO")
     all.cycles.anomaly.table.freq.AIC[cn,5] <- sqrt(sum(model$residuals^2)/n)
-    all.cycles.anomaly.table.freq.AIC[cn,6] <- ifelse(length(model$change.points)!=0, max(abs(model$gamma.coefs)[model$change.points]),NA)
+    all.cycles.anomaly.table.freq.AIC[cn,6] <- ifelse(length(model$change.points)!=0, max(abs(model$gamma.coefs)[model$change.points-1]),NA)
     all.cycles.anomaly.table.freq.AIC[cn,7] <- time
   }
   

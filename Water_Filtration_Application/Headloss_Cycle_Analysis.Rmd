@@ -20,10 +20,10 @@ and then produces confusion tables for the results of each.  The code should be 
 
 
 ```{r}
-load("Separated_Filter_Cycles/headloss_matrix.rda")
-load("Separated_Filter_Cycles/headloss_cycles_info.rda")
-source("hybrid.smoother.freq.R")
-source("hybrid.smoother.bayes.R")
+load("../Data/headloss_matrix.rda")
+load("../Data/headloss_cycles_info.rda")
+source("../Functions/hybrid.smoother.freq.R")
+source("../Functions/hybrid.smoother.bayes.R")
 ```
 
 
