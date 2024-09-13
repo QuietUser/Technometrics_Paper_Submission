@@ -400,7 +400,7 @@ for (t in 9){
     # mtext(paste0("Experimental Jump Size Needed for ",percent.success*100,"% Success Rate on Trend ",t), side = 3, line = 0, outer = TRUE)
     mtext("Upward Jump Needed to Achieve 80% Identification - AICc on Trend 9", side = 3, line = -.7, outer = TRUE,font=2)
     
-    mtext("Downward Jump Needed to Achieve 80% Identification - AICc on Trend 9", side = 3, line = -14, outer = TRUE,font=2)
+    mtext("Downward Jump Needed to Achieve 80% Identification - AICc on Trend 9", side = 3, line = -3, outer = TRUE,font=2)
 
   }
 }
