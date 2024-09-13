@@ -407,22 +407,22 @@ for (t in 9){
 ```
 
 \newpage
-Figures in Section 6 
+Figures and Table Results in Section 6 
 
 ```{r}
 load("../Water_Filtration_Application/UWTF.elbow.results.Rda")
 load("../Water_Filtration_Application/UWTF.AICc.results.Rda")
-# load("../Water_Filtration_Application/UWTF.Bayes.results.Rda")
+load("../Water_Filtration_Application/UWTF.Bayes.results.Rda")
 load("../Water_Filtration_Application/UWTF.EWMA.results.Rda")
 load("../Water_Filtration_Application/UWTF.CUSUM.results.Rda")
 library(caret) #confusion tables
 
 anomalies <- c(27,38,76,135,136,170,203,205,227,346,369,383,387,434,446,502,615,657,860,927,1077,1309,1339,1374,1400,1421,1471,1536,1592,1594,1659,1670,1679,1704,1836,1841,1899,1945,2009,2018,2038,2094,2182,2225,2269,2320,2377,2409,2424,2433,2515,2540,2633,2655,2724,2760,2861,2885,2905,2963,2994,3019,3114,3190,3201)
 
-# all.cycles.anomaly.table.bayes$Anomalous[!is.na(all.cycles.anomaly.table.bayes$Identified)]<-"NO"
-# for (i in anomalies){
-#   all.cycles.anomaly.table.bayes$Anomalous[i] <- "YES"
-# }
+all.cycles.anomaly.table.bayes$Anomalous[!is.na(all.cycles.anomaly.table.bayes$Identified)]<-"NO"
+for (i in anomalies){
+  all.cycles.anomaly.table.bayes$Anomalous[i] <- "YES"
+}
 
 all.cycles.anomaly.table.freq$Anomalous[!is.na(all.cycles.anomaly.table.freq$Identified)]<-"NO"
 for (i in anomalies){
@@ -443,91 +443,72 @@ all.cycles.anomaly.table.ewma$Anomalous[!is.na(all.cycles.anomaly.table.ewma$Ide
 for (i in anomalies){
   all.cycles.anomaly.table.ewma$Anomalous[i] <- "YES"
 }
-```
 
+###
+### Confusion Tables
+###
 
-
-Freq Elbow Confusion Table
-
-```{r}
-#Frequentist (elbow) - requirement that disturbance is at least q2 units
-q2 <- 0.15
+#Frequentist (elbow) - requirement that disturbance is at least threshold 
+threshold <- .15
 temp.table <- all.cycles.anomaly.table.freq
-temp.table$Identified[temp.table$Max.CP<q2] <- "NO" 
+temp.table$Identified[temp.table$Max.CP<threshold] <- "NO" 
 predicted <- as.factor(temp.table$Identified[!is.na(temp.table$Identified)])    
 expected <- as.factor(temp.table$Anomalous[!is.na(temp.table$Identified)])
 conf_matrix <- confusionMatrix(predicted,expected)
 cm_table <- conf_matrix$table
 cat("Confusion Matrix for Elbow Approach", "\n","\n")
 print(cm_table)
-```
+cat("\n","With identified cycles below the threshold at:","\n")
+df=data.frame(MissedCycles = which(temp.table$Identified=="NO" & temp.table$Anomalous=="YES"), MaxChangepointValue = round(temp.table$Max.CP[which(temp.table$Identified=="NO" & temp.table$Anomalous=="YES")],2))
+cat(apply(df, 1, paste, collapse = "\t"), sep = "\n")
 
-
-Freq AICc Confusion Table
-
-```{r}
-#Frequentist(AICc) - requirement that disturbance is at least q2 units
-q2 <- 0.15
+#Frequentist(AICc) - requirement that disturbance is at least threshold 
 temp.table <- all.cycles.anomaly.table.freq.AIC
-temp.table$Identified[temp.table$Max.CP<q2] <- "NO" 
+temp.table$Identified[temp.table$Max.CP<threshold] <- "NO" 
 predicted <- as.factor(temp.table$Identified[!is.na(temp.table$Identified)])    
 expected <- as.factor(temp.table$Anomalous[!is.na(temp.table$Identified)])
 conf_matrix <- confusionMatrix(predicted,expected)
 cm_table <- conf_matrix$table
-cat("Confusion Matrix for AICc Approach", "\n","\n")
+cat("\n","Confusion Matrix for AICc Approach", "\n","\n")
 print(cm_table)
-```
+cat("\n","With identified cycles below the threshold at:","\n")
+df=data.frame(MissedCycles = which(temp.table$Identified=="NO" & temp.table$Anomalous=="YES"), MaxChangepointValue = round(temp.table$Max.CP[which(temp.table$Identified=="NO" & temp.table$Anomalous=="YES")],2))
+cat(apply(df, 1, paste, collapse = "\t"), sep = "\n")
 
+#Bayesian - requirement that disturbance is at least threshold 
+temp.table <- all.cycles.anomaly.table.bayes
+temp.table$Identified[temp.table$max.gamma<threshold] <- "NO"
+predicted <- as.factor(temp.table$Identified[!is.na(temp.table$Identified)])
+expected <- as.factor(temp.table$Anomalous[!is.na(temp.table$Identified)])
+conf_matrix <- confusionMatrix(predicted,expected)
+cm_table <- conf_matrix$table
+cat("\n","Confusion Matrix for Bayes Approach", "\n","\n")
+print(cm_table)
+cat("\n","With identified cycles below the threshold at:","\n")
+df=data.frame(MissedCycles = which(temp.table$Identified=="NO" & temp.table$Anomalous=="YES"), MaxChangepointValue = round(temp.table$max.gamma[which(temp.table$Identified=="NO" & temp.table$Anomalous=="YES")],2))
+cat(apply(df, 1, paste, collapse = "\t"), sep = "\n")
 
-Bayes Confusion Table
-
-```{r}
-# #Bayesian - requirement that disturbance is at least q2 units
-# q1 <- 0
-# q2 <- .15
-# temp.table <- all.cycles.anomaly.table.bayes
-# temp.table$Identified[temp.table$max.gamma<q2] <- "NO" 
-# predicted <- as.factor(temp.table$Identified[!is.na(temp.table$Identified)])    
-# expected <- as.factor(temp.table$Anomalous[!is.na(temp.table$Identified)])
-# conf_matrix <- confusionMatrix(predicted,expected)
-# cm_table <- conf_matrix$table
-# cat("Confusion Matrix for AICc Approach", "\n","\n")
-# print(cm_table)
-```
-
-
-CUSUM Confusion Table
-
-```{r}
-#Cusum
+#CUSUM
 temp.table <- all.cycles.anomaly.table.cusum
 predicted <- as.factor(temp.table$Identified[!is.na(temp.table$Identified)])    
 expected <- as.factor(temp.table$Anomalous[!is.na(temp.table$Identified)])
 conf_matrix <- confusionMatrix(predicted,expected)
 cm_table <- conf_matrix$table
-cat("Confusion Matrix for AICc Approach", "\n","\n")
+cat("\n","Confusion Matrix for Two-Step CUSUM Approach", "\n","\n")
 print(cm_table)
-```
 
-EWMA Confusion Table
-
-```{r}
 #EWMA
 temp.table <- all.cycles.anomaly.table.ewma
 predicted <- as.factor(temp.table$Identified[!is.na(temp.table$Identified)])    
 expected <- as.factor(temp.table$Anomalous[!is.na(temp.table$Identified)])
 conf_matrix <- confusionMatrix(predicted,expected)
 cm_table <- conf_matrix$table
-cat("Confusion Matrix for AICc Approach", "\n","\n")
+cat("\n","Confusion Matrix for Two-Step EWMA Approach", "\n","\n")
 print(cm_table)
 ```
 
-
-
-
-
 ```{r}
-missed <- c(76,346,446,502)
+missed <- c(76,346,502,3201)
 
 par(mfrow = c(2,2),mar=c(3.5,3.5,3,1),oma=c(1,1,1,1), mgp=c(2.3,.7,0))
   
