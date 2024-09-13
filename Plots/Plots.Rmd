@@ -526,6 +526,7 @@ The grid takes a few minutes to compute.
 ```{r warning=FALSE}
 library(MASS)
 cn <- 170
+set.seed(1)
 for (cn in c(170,446)){
   cycle.length <- headloss_cycles_info$cycle_length[cn]
   x <- 1:(cycle.length+1)
@@ -535,7 +536,7 @@ for (cn in c(170,446)){
   lambda.grid <- 2^(seq(-6,5,.5))
   omega.grid <- 2^(seq(-2,18,.5))
   
-  model.bayes <- hybrid.smoother.bayes(x,y,n.chain=1,chain.length=6000, burn.in.percent = 2/3, lambda2.mn0 = .05)
+  model.bayes <- hybrid.smoother.bayes(x,y,n.chain=1,chain.length=3000, burn.in.percent = 1/2, lambda2.mn0 = .05)
   model.freq.aicc <- hybrid.smoother.freq(x,y,lambda.grid,omega.grid,method="AICc",construct.from = "center")
   model.freq.elbow <- hybrid.smoother.freq(x,y,lambda.grid,omega.grid,method="elbow",construct.from = "center")
   
